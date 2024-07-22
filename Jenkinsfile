@@ -72,7 +72,7 @@ pipeline {
 
 post {
     always {
-        node {
+        node(any) {
             // Clean up actions, e.g., archiving logs or reports
             archiveArtifacts artifacts: '**/test-reports/*.xml', allowEmptyArchive: true
             junit '**/test-reports/*.xml'
