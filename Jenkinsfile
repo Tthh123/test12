@@ -8,8 +8,8 @@ pipeline {
     stages {
         stage('Clone Repository') {
             steps {
-                // Clone the repository
-                git 'https://github.com/Tthh123/test12'
+                // Clone the repository using the main branch
+                checkout([$class: 'GitSCM', branches: [[name: '*/main']], userRemoteConfigs: [[url: 'https://github.com/Tthh123/test12']]])
             }
         }
 
