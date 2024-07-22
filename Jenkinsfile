@@ -70,17 +70,19 @@ pipeline {
         }
     }
 
-    post {
-        always {
+post {
+    always {
+        node {
             // Clean up actions, e.g., archiving logs or reports
             archiveArtifacts artifacts: '**/test-reports/*.xml', allowEmptyArchive: true
             junit '**/test-reports/*.xml'
         }
-        success {
-            echo 'Pipeline completed successfully.'
-        }
-        failure {
-            echo 'Pipeline failed.'
-        }
     }
+    success {
+        echo 'Pipeline completed successfully.'
+    }
+    failure {
+        echo 'Pipeline failed.'
+    }
+}
 }
