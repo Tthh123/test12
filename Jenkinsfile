@@ -72,11 +72,9 @@ pipeline {
 
     post {
         always {
-            node {
-                // Clean up actions, e.g., archiving logs or reports
-                archiveArtifacts artifacts: '**/test-reports/*.xml', allowEmptyArchive: true
-                junit '**/test-reports/*.xml'
-            }
+            // Clean up actions, e.g., archiving logs or reports
+            archiveArtifacts artifacts: '**/test-reports/*.xml', allowEmptyArchive: true
+            junit '**/test-reports/*.xml'
         }
         success {
             echo 'Pipeline completed successfully.'
