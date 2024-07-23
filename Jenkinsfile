@@ -1,74 +1,55 @@
 pipeline {
-    agent {
-        docker {
-            image 'python:3.8-slim'
-            args '-u root:root'
-        }
-    }
+    agent any
 
     environment {
-        VENV_PATH = "./venv"
+        COMPOSE_FILE = './compose.yaml'
+        FLASK_APP_DIR = './flask_app'
     }
 
     stages {
-        stage('Clone Repository') {
+        stage('Build and Start Services') {
             steps {
-                checkout([$class: 'GitSCM', branches: [[name: '*/main']], userRemoteConfigs: [[url: 'https://github.com/Tthh123/test12']]])
-            }
-        }
-
-        stage('Set Up Environment') {
-            steps {
-                sh 'python -m venv ${VENV_PATH}'
-                sh '. ${VENV_PATH}/bin/activate && pip install -r requirements.txt'
+                script {
+                    // Build and start Docker services
+                    sh 'docker-compose -f $COMPOSE_FILE up -d --build'
+                }
             }
         }
 
         stage('Dependency Check') {
             steps {
-                sh '. ${VENV_PATH}/bin/activate && pip install safety && safety check'
+                script {
+                    // Run dependency check (example for Python dependencies)
+                    sh 'docker exec -w /usr/src/app flask_app pip check'
+                }
             }
         }
 
-        stage('Lint') {
+        stage('Integration Test') {
             steps {
-                sh '. ${VENV_PATH}/bin/activate && pip install flake8 && flake8 .'
+                script {
+                    // Run integration tests
+                    sh 'docker exec -w /usr/src/app flask_app pytest tests/integration'
+                }
             }
         }
 
-        stage('Run Tests') {
+        stage('UI Test') {
             steps {
-                sh '. ${VENV_PATH}/bin/activate && pip install pytest && pytest'
-            }
-        }
-
-        stage('UI Testing') {
-            steps {
-                sh '. ${VENV_PATH}/bin/activate && FLASK_APP=app.py flask run --host=0.0.0.0 &'
-                sleep 10
-                sh '. ${VENV_PATH}/bin/activate && pip install selenium'
-                // Add your UI test commands here
-                sh 'pkill -f "flask run"'
-            }
-        }
-
-        stage('Deploy') {
-            steps {
-                sh 'docker-compose up -d'
+                script {
+                    // Run UI tests
+                    sh 'docker exec -w /usr/src/app flask_app python ui_test.py'
+                }
             }
         }
     }
 
     post {
         always {
-            archiveArtifacts artifacts: '**/test-reports/*.xml', allowEmptyArchive: true
-            junit '**/test-reports/*.xml'
-        }
-        success {
-            echo 'Pipeline completed successfully.'
-        }
-        failure {
-            echo 'Pipeline failed.'
+            // Clean up
+            script {
+                sh 'docker-compose -f $COMPOSE_FILE down'
+            }
         }
     }
 }
