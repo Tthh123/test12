@@ -7,49 +7,135 @@ pipeline {
     }
 
     stages {
-        stage('Build and Start Services') {
+        stage('Check Docker') {
             steps {
-                script {
-                    // Build and start Docker services
-                    sh 'docker-compose -f $COMPOSE_FILE up -d --build'
+                sh 'docker --version'
+            }
+        }
+        
+        stage('Clone Repository') {
+            steps {
+                dir('workspace') {
+                    git branch: 'main', url: 'https://github.com/Tthh123/realtest.git'
                 }
             }
         }
-
+        
+        stage('Setup Virtual Environment') {
+            steps {
+                dir('workspace/flask') {
+                    sh 'python3 -m venv $VENV_PATH'
+                }
+            }
+        }
+        
+        stage('Activate Virtual Environment and Install Dependencies') {
+            steps {
+                dir('workspace/flask') {
+                    sh '. $VENV_PATH/bin/activate && pip install -r requirements.txt'
+                }
+            }
+        }
+        
         stage('Dependency Check') {
             steps {
                 script {
-                    // Run dependency check (example for Python dependencies)
-                    sh 'docker exec -w /usr/src/app flask_app pip check'
+                    // Create the output directory for the dependency check report
+                    sh 'mkdir -p workspace/flask/dependency-check-report'
+                    // Print the dependency check home directory for debugging
+                    sh 'echo "Dependency Check Home: $DEPENDENCY_CHECK_HOME"'
+                    sh 'ls -l $DEPENDENCY_CHECK_HOME/bin'
+                    sh '''
+                    ${DEPENDENCY_CHECK_HOME}/bin/dependency-check.sh --project "Flask App" --scan . --format "ALL" --out workspace/flask/dependency-check-report || true
+                    '''
                 }
             }
         }
-
-        stage('Integration Test') {
+        
+        stage('UI Testing') {
             steps {
                 script {
-                    // Run integration tests
-                    sh 'docker exec -w /usr/src/app flask_app pytest tests/integration'
+                    // Start the Flask app in the background
+                    sh '. $VENV_PATH/bin/activate && FLASK_APP=$FLASK_APP flask run &'
+                    // Give the server a moment to start
+                    sh 'sleep 5'
+                    // Debugging: Check if the Flask app is running
+                    sh 'curl -s http://127.0.0.1:5000 || echo "Flask app did not start"'
+                    
+                    // Test a strong password
+                    sh '''
+                    curl -s -X POST -F "password=StrongPass123" http://127.0.0.1:5000 | grep "Welcome"
+                    '''
+                    
+                    // Test a weak password
+                    sh '''
+                    curl -s -X POST -F "password=password" http://127.0.0.1:5000 | grep "Password does not meet the requirements"
+                    '''
+                    
+                    // Stop the Flask app
+                    sh 'pkill -f "flask run"'
                 }
             }
         }
-
-        stage('UI Test') {
+        
+        stage('Integration Testing') {
+            steps {
+                dir('workspace/flask') {
+                    sh '. $VENV_PATH/bin/activate && pytest --junitxml=integration-test-results.xml'
+                }
+            }
+        }
+        
+        stage('Build Docker Image') {
+            steps {
+                dir('workspace/flask') {
+                    sh 'docker build -t flask-app .'
+                }
+            }
+        }
+        
+        stage('SonarQube Analysis') {
+            steps {
+                withSonarQubeEnv('SonarQube') {
+                    dir('workspace/flask') {
+                        sh '''
+                        ${SONARQUBE_SCANNER_HOME}/bin/sonar-scanner \
+                        -Dsonar.projectKey=flask-app \
+                        -Dsonar.sources=. \
+                        -Dsonar.inclusions=app.py \
+                        -Dsonar.host.url=http://sonarqube:9000 \
+                        -Dsonar.login=${SONARQUBE_TOKEN}
+                        '''
+                    }
+                }
+            }
+        }
+        
+        stage('Deploy Flask App') {
             steps {
                 script {
-                    // Run UI tests
-                    sh 'docker exec -w /usr/src/app flask_app python ui_test.py'
+                    echo 'Deploying Flask App...'
+                    // Stop any running container on port 5000
+                    sh 'docker ps --filter publish=5000 --format "{{.ID}}" | xargs -r docker stop'
+                    // Remove the stopped container
+                    sh 'docker ps -a --filter status=exited --filter publish=5000 --format "{{.ID}}" | xargs -r docker rm'
+                    // Run the new Flask app container
+                    sh 'docker run -d -p 5000:5000 flask-app'
+                    sh 'sleep 10'
                 }
             }
         }
     }
-
+    
     post {
-        always {
-            // Clean up
+        failure {
             script {
-                sh 'docker-compose -f $COMPOSE_FILE down'
+                echo 'Build failed, not deploying Flask app.'
             }
+        }
+        always {
+            archiveArtifacts artifacts: 'workspace/flask/dependency-check-report/*.*', allowEmptyArchive: true
+            archiveArtifacts artifacts: 'workspace/flask/integration-test-results.xml', allowEmptyArchive: true
         }
     }
 }
